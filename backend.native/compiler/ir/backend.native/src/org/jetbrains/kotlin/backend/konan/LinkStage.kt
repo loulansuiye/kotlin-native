@@ -93,9 +93,7 @@ private class LegacyLlvmPipeline(val context: Context) {
         } + llvmProfilingFlags()).toTypedArray()
         val combinedO = temporary("combined", ".o")
         hostLlvmTool("llc", optimizedBc, "-o", combinedO, *llcFlags, "-filetype=obj")
-        val linkedWasm = temporary("linked", ".wasm")
-        hostLlvmTool("wasm-ld", combinedO, "-o", linkedWasm, *configurables.lldFlags.toTypedArray())
-        return linkedWasm
+        return combinedO
     }
 
     private fun llvmLinkAndLlc(bitcodeFiles: List<BitcodeFile>): String {

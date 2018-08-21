@@ -16,6 +16,8 @@
 
 #include "CodeGen.h"
 
+#include <llvm/IR/Verifier.h>
+
 // It is usual LLVM invocation function.
 // The only special thing is that it runs preparation passes that are required
 // to make bitcode a little bit cleaner.
@@ -32,8 +34,8 @@ bool CodeGen::compile(std::unique_ptr<Module> module, raw_pwrite_stream &os) {
   // Right after linkage we have a lot of unused symbols.
   // We don't want compiler to spend time optimizing dead code.
   preparationPasses.add(createInternalizePass());
-  preparationPasses.add(createEliminateAvailableExternallyPass());
-  preparationPasses.add(createGlobalDCEPass());
+//  preparationPasses.add(createEliminateAvailableExternallyPass());
+//  preparationPasses.add(createGlobalDCEPass());
   // Many functions in runtime are marked as always_inline so it is better to inline them asap.
   preparationPasses.add(createAlwaysInlinerLegacyPass());
   preparationPasses.run(*module);
@@ -67,10 +69,27 @@ bool CodeGen::compile(std::unique_ptr<Module> module, raw_pwrite_stream &os) {
       functionPasses.run(F);
   functionPasses.doFinalization();
 
-  if (config.shouldPerformLto) {
-    modulePasses.run(*module);
-  }
+  modulePasses.run(*module);
 
+  legacy::PassManager preCodeGenPasses;
+  preCodeGenPasses.add(
+      createTargetTransformInfoWrapperPass(targetMachine->getTargetIRAnalysis()));
+  preCodeGenPasses.add(createGlobalDCEPass());
+  preCodeGenPasses.run(*module);
+
+
+  // Let's verify module after all passes
+  bool hasDebugInfoError = false;
+  if (verifyModule(*module, &logging::error(), &hasDebugInfoError)) {
+    logging::error() << "Module verification after all optimization passes failed.\n";
+    return true;
+  }
+  if (hasDebugInfoError) {
+    if (config.shouldPreserveDebugInfo) {
+      logging::error() << "Invalid debug info found after all optimization passes.\n";
+      return true;
+    }
+  }
   codeGenPasses.run(*module);
 
   return false;
